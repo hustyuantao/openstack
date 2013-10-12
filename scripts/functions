@@ -7,9 +7,11 @@ function INSTALL_DEPENDENCY() {
 	yum -y update
 	yum -y groupinstall "Development Tools"
 	yum -y groupinstall "MySQL Database server"
+	yum -y groupinstall "Web Server"
 	yum -y install python-devel python-pip libxml2-devel libxslt-devel MySQL-python
 	yum -y install rabbitmq-server bridge-utils iscsi-initiator-utils scsi-target-utils
 	yum -y install virt-manager libvirt qemu-kvm virt-viewer
+	yum -y install memcached python-memcached mod_wsgi 
 }
 
 # Turn Off Selinux
@@ -37,7 +39,7 @@ function INSTALL_RDO_EPEL() {
 	fi
 }
 
-# Download Openstack Source (Projects: 32)
+# Download Openstack Source (Projects: 30)
 function DOWNLOAD() {
 	GIT_BASE="https://github.com"
 	# Keystone
@@ -122,4 +124,186 @@ function DOWNLOAD() {
 	TROVECLIENT_REPO="$GIT_BASE/openstack/python-troveclient.git"
 	git clone $TROVECLIENT_REPO	
 }
+
+# Configure MySQL Database
+function CONFIG_MYSQL() {
+	# Set Root Password
+	/usr/bin/mysqladmin -u root password '123456'
+	# Create Keystone Database
+	mysql -uroot -p123456 -e "CREATE DATABASE keystone CHARACTER SET utf8;"
+	mysql -uroot -p123456 -e "GRANT ALL ON keystone.* TO 'keystone'@'%' IDENTIFIED BY '123456';"
+	mysql -uroot -p123456 -e "GRANT ALL ON keystone.* TO 'keystone'@'localhost' IDENTIFIED BY '123456';"
+	# Create Glance Database
+	mysql -uroot -p123456 -e "CREATE DATABASE glance CHARACTER SET utf8;"
+	mysql -uroot -p123456 -e "GRANT ALL ON glance.* TO 'glance'@'%' IDENTIFIED BY '123456';"
+	mysql -uroot -p123456 -e "GRANT ALL ON glance.* TO 'glance'@'localhost' IDENTIFIED BY '123456';"
+	# Create Cinder Database
+	mysql -uroot -p123456 -e "CREATE DATABASE cinder CHARACTER SET utf8;"
+	mysql -uroot -p123456 -e "GRANT ALL ON cinder.* TO 'cinder'@'%' IDENTIFIED BY '123456';"
+	mysql -uroot -p123456 -e "GRANT ALL ON cinder.* TO 'cinder'@'localhost' IDENTIFIED BY '123456';"
+	# Create Nova Database
+	mysql -uroot -p123456 -e "CREATE DATABASE nova CHARACTER SET utf8;"
+	mysql -uroot -p123456 -e "GRANT ALL ON nova.* TO 'nova'@'%' IDENTIFIED BY '123456';"
+	mysql -uroot -p123456 -e "GRANT ALL ON nova.* TO 'nova'@'localhost' IDENTIFIED BY '123456';"	
+}
+
+# Sync MySQL Database
+function SYNC_MYSQL() {
+	# Initialize Keystone Database
+	keystone-manage db_sync
+	# Initialize Glance Database
+	glance-manage db_sync
+	# Initialize Cinder Database
+	cinder-manage db sync
+	# Initialize Nova Database
+	nova-manage db sync
+}
+
+# Configure RabbitMQ
+function CONFIG_RABBITMQ() {	
+	# Set Virtual Host, User and Permissions
+	rabbitmqctl add_vhost /nova
+	rabbitmqctl add_user rabbit 123456
+	rabbitmqctl set_permissions -p /nova rabbit ".*" ".*" ".*"
+}
+
+# Start Services
+function START_SERVICE() {
+	# Start MySQL Server
+	service mysqld start
+	# Start RabbitMQ Server
+	service rabbitmq-server start
+	# Start tgtd Server
+	service tgtd start
+	# Start Libvirtd Server
+	service libvirtd start
+	# Start apache2 Server
+	service apache2 start
+	# Start Memcached Server
+	service memcached start	
+}
+
+# Configure Cinder Volumes
+function CONFIG_CINDER() {
+	dd if=/dev/zero of=/var/lib/cinder/cinder-volumes bs=1 count=0 seek=200G
+	losetup /dev/loop0 /var/lib/cinder/cinder-volumes
+	pvcreate /dev/loop0
+	vgcreate cinder-volumes /dev/loop0
+}
+
+# Create User And Group
+function CREATE_USER() {
+	# Create Keystone User
+	useradd -s /sbin/nologin -m -d /var/log/keystone keystone
+	# Create Cinder User
+	useradd -s /sbin/nologin -m -d /var/log/cinder cinder
+	# Create Glance User
+	useradd -s /sbin/nologin -m -d /var/log/glance glance
+	# Create Nova User
+	useradd -s /sbin/nologin -m -d /var/log/nova nova
+	# Create Swift User
+	useradd -s /sbin/nologin -m -d /var/log/swift swift
+}
+
+# Get ID
+function GET_ID () {
+    echo `"$@" | grep ' id ' | awk '{print $4}'`
+}
+
+# Configure Keystone
+function CONFIG_KEYSTONE() {
+	KEYSTONE_CONF="/etc/keystone/keystone.conf"
+	# Extract service token from Keystone's configuration file
+	if [[ -r "$KEYSTONE_CONF" ]]; then
+    		SERVICE_TOKEN=$(sed 's/[[:space:]]//g' $KEYSTONE_CONF | grep ^admin_token= | cut -d'=' -f2)
+	fi
+	export OS_SERVICE_TOKEN=$SERVICE_TOKEN
+	export OS_SERVICE_ENDPOINT=http://localhost:35357/v2.0
+
+	# Create A Default Tenant Named "demo"
+	DEMO_TENANT=$(GET_ID keystone tenant-create --name demo --description "Default Tenant")
+	# Create a default user named admin
+	ADMIN_USER=$(GET_ID keystone user-create --tenant-id $DEMO_TENANT --name admin --pass 123456)
+	# Create an administrative role
+	ADMIN_ROLE=$(GET_ID keystone role-create --name admin)
+	# Grant the admin role to the admin user in the demo tenant
+	keystone user-role-add --user-id $ADMIN_USER --role-id $ADMIN_ROLE --tenant-id $DEMO_TENANT
+
+	# Create a Service Tenant
+	SERVICE_TENANT=$(GET_ID keystone tenant-create --name=service --description "Service Tenant")
+	# Create a Glance Service User in the Service Tenant
+	GLANCE_USER=$(GET_ID keystone user-create --tenant-id $SERVICE_TENANT --name=glance --pass=123456)
+	# Grant the admin role
+	keystone user-role-add --user-id $GLANCE_USER --role-id $ADMIN_ROLE --tenant-id $SERVICE_TENANT
+	# Create a Nova Service User in the Service Tenant
+	NOVA_USER=$(GET_ID keystone user-create --tenant-id $SERVICE_TENANT --name=nova --pass=123456)
+	# Grant the admin role
+	keystone user-role-add --user-id $NOVA_USER --role-id $ADMIN_ROLE --tenant-id $SERVICE_TENANT
+	# Create an EC2 Service User
+	EC2_USER=$(GET_ID keystone user-create --tenant-id $SERVICE_TENANT --name=ec2 --pass=123456)
+	# Grant the admin role
+	keystone user-role-add --user-id $EC2_USER --role-id $ADMIN_ROLE --tenant-id $SERVICE_TENANT
+	# Create an Swift Service User
+	SWIFT_USER=$(GET_ID keystone user-create --tenant-id $SERVICE_TENANT --name=swift --pass=123456)
+	# Grant the admin role
+	keystone user-role-add --user-id $SWIFT_USER --role-id $ADMIN_ROLE --tenant-id $SERVICE_TENANT
+	# Create Cinder Service User
+	CINDER_USER=$(GET_ID keystone user-create --tenant-id $SERVICE_TENANT --name=cinder --pass=123456)
+	# Grant the admin role
+	keystone user-role-add --user-id $CINDER_USER --role-id $ADMIN_ROLE --tenant-id $SERVICE_TENANT
+
+	# Define the Identity service
+	KEYSTONE_HOST=localhost
+	KEYSTONE_SERVICE=$(GET_ID keystone service-create --name=keystone --type=identity --description="Keystone Identity Service")
+	keystone endpoint-create --region RegionOne --service-id=$KEYSTONE_SERVICE \
+		--publicurl="http://$KEYSTONE_HOST:5000/v2.0" \
+		--internalurl="http://$KEYSTONE_HOST:5000/v2.0" \
+		--adminurl="http://$KEYSTONE_HOST:35357/v2.0"
+	# Define the Compute service
+	NOVA_HOST=localhost
+	NOVA_SERVICE=$(GET_ID keystone service-create --name=nova --type=compute --description="Nova Compute Service")
+	keystone endpoint-create --region RegionOne --service-id=$NOVA_SERVICE \
+		--publicurl="http://$NOVA_HOST:8774/v2/%(tenant_id)s" \
+		--internalurl="http://$NOVA_HOST:8774/v2/%(tenant_id)s" \
+		--adminurl="http://$NOVA_HOST:8774/v2/%(tenant_id)s"
+	# Define the Volume service
+	VOLUME_HOST=localhost
+	VOLUME_SERVICE=$(GET_ID keystone service-create --name=volume --type=volume --description="Nova Volume Service")
+	keystone endpoint-create --region RegionOne --service-id=$VOLUME_SERVICE \
+		--publicurl="http://$VOLUME_HOST:8776/v1/%(tenant_id)s" \
+		--internalurl="http://$VOLUME_HOST:8776/v1/%(tenant_id)s" \
+		--adminurl="http://$VOLUME_HOST:8776/v1/%(tenant_id)s"
+	# Define Cinder Volume Service
+	CINDER_HOST=localhost
+	CINDER_SERVICE=$(GET_ID keystone service-create --name=cinder --type=volume --description="Cinder Volume Service")
+	keystone endpoint-create --region RegionOne --service-id=$CINDER_SERVICE \
+		--publicurl="http://$CINDER_HOST:8776/v1/%(tenant_id)s" \
+		--internalurl="http://$CINDER_HOST:8776/v1/%(tenant_id)s" \
+		--adminurl="http://$CINDER_HOST:8776/v1/%(tenant_id)s"
+	# Define the Image service
+	GLANCE_HOST=localhost
+	GLANCE_SERVICE=$(GET_ID keystone service-create --name=glance --type=image --description="Glance Image Service")
+	keystone endpoint-create --region RegionOne --service-id=$GLANCE_SERVICE \
+		--publicurl="http://$GLANCE_HOST:9292" \
+		--internalurl="http://$GLANCE_HOST:9292" \
+		--adminurl="http://$GLANCE_HOST:9292"
+	# Define the EC2 compatibility service
+	EC2_HOST=localhost
+	EC2_SERVICE=$(GET_ID keystone service-create --name=ec2 --type=ec2 --description="EC2 Compatibility Layer")
+	keystone endpoint-create --region RegionOne --service-id=$EC2_SERVICE \
+		--publicurl="http://$EC2_HOST:8773/services/Cloud" \
+		--internalurl="http://$EC2_HOST:8773/services/Cloud" \
+		--adminurl="http://$EC2_HOST:8773/services/Admin"
+	# Define the Object Storage service
+	SWIFT_HOST=localhost
+	SWIFT_SERVICE=$(GET_ID keystone service-create --name=swift --type=object-store --description="Swift Service")
+	keystone endpoint-create --region RegionOne --service-id=$SWIFT_SERVICE \
+		--publicurl "http://$SWIFT_HOST:8888/v1/AUTH_%(tenant_id)s" \
+		--adminurl "http://$SWIFT_HOST:8888/v1" \
+		--internalurl "http://$SWIFT_HOST:8888/v1/AUTH_%(tenant_id)s"
+	# Initialize PKI
+	keystone-manage pki_setup --keystone-user keystone --keystone-group keystone
+}
+
+
 

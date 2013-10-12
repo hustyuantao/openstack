@@ -1,0 +1,6 @@
+
+                <target iqn.2010-10.org.openstack:volume-3ab92aed-8b8c-4637-93b6-506726520fa7>
+                    backing-store /dev/cinder-volumes/volume-3ab92aed-8b8c-4637-93b6-506726520fa7
+                    IncomingUser xpVKaBuNiU77tHCBr88r Xfh4zTec9UYKGd5h6Kgz
+                </target>
+            

@@ -1,0 +1,97 @@
+#!/bin/sh
+
+### BEGIN INIT INFO
+# Provides:          openstack-swift-object-expirer
+# Required-Start:    $remote_fs
+# Required-Stop:     $remote_fs
+# Default-Stop:      0 1 6
+# Short-Description: Swift object expirer
+# Description:       Object expirer for swift.
+### END INIT INFO
+
+# openstack-swift-object-expirer: swift object expirer
+#
+# chkconfig: - 98 02
+# description: Object expirer for swift.
+
+. /etc/rc.d/init.d/functions
+
+name="object"
+subserv="expirer"
+
+[ -e "/etc/sysconfig/openstack-swift-$name" ] && . "/etc/sysconfig/openstack-swift-$name"
+
+lockfile="/var/lock/subsys/openstack-swift-$name-$subserv"
+
+# The Object expirer defies the regular conventions enough that we have to
+# introspect into functions a bit. Fortunately all we need is a minute change
+# to swift_action.
+swift_action_expirer() {
+  retval=0
+  server="$1"
+  subserv="$2"
+  call="swift_$3"
+
+  if [[ -f "/etc/swift/$server-$subserv.conf" ]]; then
+    $call "$server-$subserv" \
+          "/etc/swift/$server-$subserv.conf" \
+          "/var/run/swift/$server-$subserv.pid"
+    [ $? -ne 0 ] && retval=1
+  else
+    retval=1
+  fi
+  return $retval
+}
+
+start() {
+    swift_action_expirer "$name" "$subserv" start
+    retval=$?
+    [ $retval -eq 0 ] && touch $lockfile
+    return $retval
+}
+
+stop() {
+    swift_action_expirer "$name" "$subserv" stop
+    retval=$?
+    [ $retval -eq 0 ] && rm -f $lockfile
+    return $retval
+}
+
+restart() {
+    stop
+    start
+}
+
+rh_status() {
+    swift_action_expirer "$name" "$subserv" status
+}
+
+rh_status_q() {
+    rh_status &> /dev/null
+}
+
+
+case "$1" in
+    start)
+        rh_status_q && exit 0
+        $1
+        ;;
+    stop)
+        rh_status_q || exit 0
+        $1
+        ;;
+    restart)
+        $1
+        ;;
+    status)
+        rh_status
+        ;;
+    condrestart|try-restart)
+        rh_status_q || exit 0
+        restart
+        ;;
+    *)
+        echo $"Usage: $0 {start|stop|status|restart|condrestart|try-restart}"
+        exit 2
+esac
+exit $?

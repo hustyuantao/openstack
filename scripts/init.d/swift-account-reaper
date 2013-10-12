@@ -1,0 +1,76 @@
+#!/bin/sh
+
+### BEGIN INIT INFO
+# Provides:          openstack-swift-account-reaper
+# Required-Start:    $remote_fs
+# Required-Stop:     $remote_fs
+# Default-Stop:      0 1 6
+# Short-Description: Swift account reaper
+# Description:       Account reaper for swift.
+### END INIT INFO
+
+# openstack-swift-account-reaper: swift account reaper
+#
+# chkconfig: - 98 02
+# description: Account reaper for swift.
+
+. /etc/rc.d/init.d/functions
+
+name="account"
+subserv="reaper"
+
+[ -e "/etc/sysconfig/openstack-swift-$name" ] && . "/etc/sysconfig/openstack-swift-$name"
+
+lockfile="/var/lock/subsys/openstack-swift-$name-$subserv"
+
+start() {
+    swift_action "$name" $subserv start
+    retval=$?
+    [ $retval -eq 0 ] && touch $lockfile
+    return $retval
+}
+
+stop() {
+    swift_action "$name" $subserv stop
+    retval=$?
+    [ $retval -eq 0 ] && rm -f $lockfile
+    return $retval
+}
+
+restart() {
+    stop
+    start
+}
+
+rh_status() {
+    swift_action "$name" $subserv status
+}
+
+rh_status_q() {
+    rh_status &> /dev/null
+}
+
+case "$1" in
+    start)
+        rh_status_q && exit 0
+        $1
+        ;;
+    stop)
+        rh_status_q || exit 0
+        $1
+        ;;
+    restart)
+        $1
+        ;;
+    status)
+        rh_status
+        ;;
+    condrestart|try-restart)
+        rh_status_q || exit 0
+        restart
+        ;;
+    *)
+        echo $"Usage: $0 {start|stop|status|restart|condrestart|try-restart}"
+        exit 2
+esac
+exit $?
