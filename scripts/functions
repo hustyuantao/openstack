@@ -305,5 +305,10 @@ function CONFIG_KEYSTONE() {
 	keystone-manage pki_setup --keystone-user keystone --keystone-group keystone
 }
 
-
+# Create Directories
+function CREATE_DIRS() {
+	# Keystone
+	mkdir -p /etc/keystone /var/log/keystone
+	
+}
 

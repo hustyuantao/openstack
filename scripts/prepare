@@ -1,0 +1,217 @@
+#!/bin/sh
+
+# Install Dependency Software And Libraries
+function INSTALL_DEPENDENCY() {
+	yum -y update
+	yum -y groupinstall "Development Tools"
+	yum -y groupinstall "MySQL Database server"
+	yum -y groupinstall "Web Server"
+	yum -y install python-devel python-pip libxml2-devel libxslt-devel MySQL-python
+	yum -y install rabbitmq-server bridge-utils iscsi-initiator-utils scsi-target-utils
+	yum -y install virt-manager libvirt qemu-kvm virt-viewer
+	yum -y install memcached python-memcached mod_wsgi 
+}
+
+# Turn Off Selinux
+function DISABLE_SELINUX() {
+	setenforce 0
+	sed -i '/^SELINUX=/s/enforcing/disabled/g' /etc/selinux/config
+}
+
+# Install RDO and EPEL REPO
+function INSTALL_RDO_EPEL() {
+	RHEL6_EPEL_RPM="http://dl.fedoraproject.org/pub/epel/6/x86_64/epel-release-6-8.noarch.rpm"
+	RHEL6_EPEL_ID="epel"
+	if ! yum repolist enabled $RHEL6_EPEL_RPM | grep -q $RHEL6_EPEL_ID; then
+		wget $RHEL6_EPEL_RPM
+		rpm -ivh epel-release-6-8.noarch.rpm
+		rm -f epel-release-6-8.noarch.rpm
+	fi
+
+	RHEL6_RDO_REPO_RPM="http://rdo.fedorapeople.org/openstack-havana/rdo-release-havana.rpm"
+	RHEL6_RDO_REPO_ID="openstack-havana"
+	if ! yum repolist enabled $RHEL6_RDO_REPO_ID | grep -q $RHEL6_RDO_REPO_ID; then
+		wget $RHEL6_RDO_REPO_RPM
+		rpm -ivh rdo-release-havana.rpm
+		rm -f rdo-release-havana.rpm
+	fi
+}
+
+
+# Download Openstack Source (Projects: 30)
+function DOWNLOAD() {
+	GIT_BASE="https://github.com"
+	# Keystone
+	if [ ! -d keystone ]; then
+		KEYSTONE_REPO="$GIT_BASE/openstack/keystone.git"
+		git clone $KEYSTONE_REPO
+		
+	fi
+	if [ ! -d python-keystoneclient ]; then
+		KEYSTONECLIENT_REPO="$GIT_BASE/openstack/python-keystoneclient.git"
+		git clone $KEYSTONECLIENT_REPO
+	fi
+	# Glance
+	if [ ! -d glance ]; then
+		GLANCE_REPO="$GIT_BASE/openstack/glance.git"
+		git clone $GLANCE_REPO
+	fi
+	if [ ! -d python-glanceclient ]; then
+		GLANCECLIENT_REPO="$GIT_BASE/openstack/python-glanceclient.git"
+		git clone $GLANCECLIENT_REPO
+	fi
+	# Cinder
+	if [ ! -d cinder ]; then
+		CINDER_REPO="$GIT_BASE/openstack/cinder.git"
+		git clone $CINDER_REPO
+	fi
+	if [ ! -d python-cinderclient ]; then
+		CINDERCLIENT_REPO="$GIT_BASE/openstack/python-cinderclient.git"
+		git clone $CINDERCLIENT_REPO
+	fi
+	# Nova
+	if [ ! -d nova ]; then
+		NOVA_REPO="$GIT_BASE/openstack/nova.git"
+		git clone $NOVA_REPO
+	fi
+	if [ ! -d python-novaclient ]; then
+		NOVACLIENT_REPO="$GIT_BASE/openstack/python-novaclient.git"
+		git clone $NOVACLIENT_REPO
+	fi
+	# Horizon
+	if [ ! -d horizon ]; then
+		HORIZON_REPO="$GIT_BASE/openstack/horizon.git"
+		git clone $HORIZON_REPO
+	fi
+	# Neutron
+	if [ ! -d neutron ]; then
+		NEUTRON_REPO="$GIT_BASE/openstack/neutron.git"
+		git clone $NEUTRON_REPO
+	fi
+	if [ ! -d python-neutronclient ]; then
+		NEUTRONCLIENT_REPO="$GIT_BASE/openstack/python-neutronclient.git"
+		git clone $NEUTRONCLIENT_REPO
+	fi
+	# Swift
+	if [ ! -d swift ]; then
+		SWIFT_REPO="$GIT_BASE/openstack/swift.git"
+		git clone $SWIFT_REPO
+	fi
+	if [ ! -d swift3 ]; then
+		SWIFT3_REPO="$GIT_BASE/fujita/swift3.git"
+		git clone $SWIFT3_REPO
+	fi
+	if [ ! -d python-swiftclient ]; then
+		SWIFTCLIENT_REPO="$GIT_BASE/openstack/python-swiftclient.git"
+		git clone $SWIFTCLIENT_REPO
+	fi
+	# NoVNC
+	if [ ! -d noVNC ]; then
+		NOVNC_REPO="$GIT_BASE/kanaka/noVNC.git"
+		git clone $NOVNC_REPO
+	fi
+	# Ceilometer
+	if [ ! -d ceilometer ]; then
+		CEILOMETER_REPO="$GIT_BASE/openstack/ceilometer.git"
+		git clone $CEILOMETER_REPO
+	fi
+	if [ ! -d python-ceilometerclient ]; then
+		CEILOMETERCLIENT_REPO="$GIT_BASE/openstack/python-ceilometerclient.git"
+		git clone $CEILOMETERCLIENT_REPO
+	fi
+	# Heat
+	if [ ! -d heat ]; then
+		HEAT_REPO="$GIT_BASE/openstack/heat.git"
+		git clone $HEAT_REPO
+	fi
+	if [ ! -d python-heatclient ]; then
+		HEATCLIENT_REPO="$GIT_BASE/openstack/python-heatclient.git"
+		git clone $HEATCLIENT_REPO	
+	fi
+	# Ironic
+	if [ ! -d ironic ]; then
+		IRONIC_REPO="$GIT_BASE/openstack/ironic.git"
+		git clone $IRONIC_REPO
+	fi
+	# Openstack Client
+	if [ ! -d python-openstackclient ]; then
+		OPENSTACKCLIENT_REPO="$GIT_BASE/openstack/python-openstackclient.git"
+		git clone $OPENSTACKCLIENT_REPO
+	fi
+	# oslo.config
+	if [ ! -d oslo.config ]; then
+		OSLOCFG_REPO="$GIT_BASE/openstack/oslo.config.git"
+		git clone $OSLOCFG_REPO
+	fi
+	# oslo.messaging
+	if [ ! -d oslo.messaging ]; then
+		OSLOMSG_REPO="$GIT_BASE/openstack/oslo.messaging.git"
+		git clone $OSLOMSG_REPO
+	fi
+	# consolidated openstack requirements	
+	if [ ! -d requirements ]; then
+		REQUIREMENTS_REPO="$GIT_BASE/openstack/requirements.git"
+		git clone $REQUIREMENTS_REPO
+	fi
+	# Tempest test suite	
+	if [ ! -d tempest ]; then
+		TEMPEST_REPO="$GIT_BASE/openstack/tempest.git"
+		git clone $TEMPEST_REPO
+	fi
+	# bm_poseur
+	# Used to simulate a hardware environment for baremetal
+	if [ ! -d bm_poseur ]; then
+		BM_POSEUR_REPO="$GIT_BASE/tripleo/bm_poseur.git"
+		git clone $BM_POSEUR_REPO
+	fi
+	# ryu service
+	if [ ! -d ryu ]; then
+		RYU_REPO="$GIT_BASE/osrg/ryu.git"
+		git clone $RYU_REPO
+	fi
+	# a websockets/html5 or flash powered SPICE console for vm instances
+	if [ ! -d spice-html5 ]; then
+		SPICE_REPO="http://anongit.freedesktop.org/git/spice/spice-html5.git"
+		git clone $SPICE_REPO
+	fi
+	# Trove
+	if [ ! -d trove ]; then
+		TROVE_REPO="$GIT_BASE/openstack/trove.git"
+		git clone $TROVE_REPO
+	fi
+	if [ ! -d python-troveclient ]; then
+		TROVECLIENT_REPO="$GIT_BASE/openstack/python-troveclient.git"
+		git clone $TROVECLIENT_REPO
+	fi
+}
+
+# Start Services
+function START_SERVICE() {
+	# Start MySQL Server
+	service mysqld start
+	# Start RabbitMQ Server
+	service rabbitmq-server start
+	# Start tgtd Server
+	service tgtd start
+	# Start Libvirtd Server
+	service libvirtd start
+	# Start apache2 Server
+	service apache2 start
+	# Start Memcached Server
+	service memcached start	
+}
+
+# Configure RabbitMQ
+function CONFIG_RABBITMQ() {	
+	# Set Virtual Host, User and Permissions
+	rabbitmqctl add_vhost /nova
+	rabbitmqctl add_user rabbit 123456
+	rabbitmqctl set_permissions -p /nova rabbit ".*" ".*" ".*"
+}
+
+# Configure MySQL Database
+function CONFIG_MYSQL() {
+	# Set Root Password
+	/usr/bin/mysqladmin -u root password '123456'
+}
+
